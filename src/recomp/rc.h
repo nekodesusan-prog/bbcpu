@@ -1,4 +1,4 @@
-/* The runtime interface of recompiled game code (docs/RECOMPILATION.md): what the C written by
+/* The runtime interface of recompiled game code (bloodborne-recomp's docs/RECOMPILATION.md): what the C written by
  * tools/recomp/bbrecomp.c includes, and what the program (the game, tools/recomp/replay.c) gives it.
  *
  * A recompiled function takes the guest CPU state at the function's entry (its return address on

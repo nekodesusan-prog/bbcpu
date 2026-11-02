@@ -1,4 +1,4 @@
-/* bbcpu: recorded calls of game functions, for checking decompiled ones (docs/RECOMPILATION.md).
+/* bbcpu: recorded calls of game functions, for checking decompiled ones (bloodborne-recomp's docs/RECOMPILATION.md).
  *
  * BB_RECORD=OFFSET:SIZE[,OFFSET:SIZE...] (image offsets and sizes from tools/recomp/scan.c): calls of
  * these functions are run by the tracer below, one instruction at a time, and written to

@@ -1,4 +1,4 @@
-/* bbcpu: recompiled game functions (docs/RECOMPILATION.md). BB_RECOMP_LIB names a library of C
+/* bbcpu: recompiled game functions (bloodborne-recomp's docs/RECOMPILATION.md). BB_RECOMP_LIB names a library of C
  * written by tools/recomp/bbrecomp.c from the player's own eboot (src/recomp/rc.h): its functions
  * replace the translated ones. A call of one reaches the dispatcher (the JIT leaves its first
  * instruction untranslated) and bbcpu_step runs it. BB_RECOMP_OFF=OFFSET,... leaves chosen ones to

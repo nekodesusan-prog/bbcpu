@@ -1,10 +1,11 @@
-# Native arm64 (no Rosetta)
+# Architecture
 
 [← Documentation](README.md)
 
-Goal: the macOS build runs natively on Apple Silicon. The game's code is x86-64 machine code with
-no source, so it is translated in-process by `bbcpu` (src/cpu/); everything else (runtime, GPU
-library, MoltenVK, SDL, FFmpeg) is built for arm64.
+A PS4 game is x86-64 machine code with no source. bbcpu runs it inside an arm64 process: it was
+written so that Bloodborne's macOS port could drop Rosetta, and everything else in that port is
+built for arm64. The text below describes that use; the pieces a host needs are in
+[API.md](API.md).
 
 ## Why our own translator
 
@@ -67,7 +68,7 @@ only through imports the runtime already implements), no self-modifying code, on
 ## Debugging switches
 
 `BB_JIT_DENY=tokens` (interpret chosen instruction kinds), `BB_JIT_MAP=file` (guest block → host
-code map, for `tools/recomp/sample_guest.py` with macOS `sample`), `BB_JIT_DUMP=file` (instructions seen).
+code map, for bloodborne-recomp's `tools/recomp/sample_guest.py` with macOS `sample`), `BB_JIT_DUMP=file` (instructions seen).
 Hosts can watch guest functions: `bbcpu_set_probe` (a host function at a guest address, with the
 registers) and `bbcpu_set_guard` (one on entry and one on return: the return address is kept on a
 per-thread stack). bloodborne-runtime's `BB_CB_PROBE` and command buffer guards use them.
@@ -100,7 +101,7 @@ output. `tools/cpu/test_jit.sh` includes synthetic fault, slow-access and ring-w
   vector code was much slower than integer code. It was the interpreter's `lock cmpxchg`: after a
   failed exchange it reported the value of a separate load, which another thread could have
   changed back, so a failed exchange looked successful and two threads took the same lock
-  (found with the recompiler, docs/RECOMPILATION.md). Uneven thread speeds made it likely.
+  (found with the recompiler, [bloodborne-recomp](https://github.com/bloodborne-native/bloodborne-recomp)). Uneven thread speeds made it likely.
 - "Unimplemented PM4 type 0" while loading (most loads in Brazilian Portuguese) was not the CPU
   layer: the game's main thread and its render thread wrote one GPU command buffer at once, which
   the PS4's timing hid (bloodborne-runtime: command buffer guards).

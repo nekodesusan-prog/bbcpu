@@ -1,5 +1,5 @@
-# Builds bbcpu and the recompiler's tools on Apple Silicon and runs the CPU tests: every push to
-# main and every pull request. The x86-64 halves of the tests run under Rosetta.
+# Builds bbcpu and its example host on Apple Silicon and runs the CPU tests: every push to main and
+# every pull request. The x86-64 halves of the tests run under Rosetta.
 name: macOS
 
 on:
@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # Homebrew's clang, as on the maintainer's Mac: Apple's clang compiles the x86-64 test guest
-      # with AVX instructions bbcpu does not implement (the game does not use them).
+      # with AVX instructions bbcpu does not implement (the games it was written for do not use them).
       - name: Tools
         run: |
           brew install ninja llvm
@@ -35,6 +35,9 @@ jobs:
 
       - name: Build
         run: bash build.sh
+
+      - name: Example host
+        run: out/hello
 
       # Interpreter and JIT against native x86-64 results (4,000 cases each), then fault reports.
       - name: CPU tests
