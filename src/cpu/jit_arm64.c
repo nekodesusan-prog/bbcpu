@@ -2829,9 +2829,7 @@ int bbcpu_jit_translates(const BbInsn *in, uint64_t rip) {
     return handled;
 }
 
-static const CodeRange *fault_range(void *context) {
-    ucontext_t *uc = context;
-    const uint64_t pc = uc->uc_mcontext->__ss.__pc;
+static const CodeRange *range_at(uint64_t pc) {
     if (!code_base || pc < (uint64_t)(uintptr_t)code_base || pc >= (uint64_t)(uintptr_t)code_next) return NULL;
     for (const CodeRangeChunk *chunk = __atomic_load_n(&range_chunks, __ATOMIC_ACQUIRE);
          chunk; chunk = chunk->next) {
@@ -2848,6 +2846,19 @@ static const CodeRange *fault_range(void *context) {
                &chunk->entries[lo] : NULL;
     }
     return NULL;
+}
+static const CodeRange *fault_range(void *context) {
+    ucontext_t *uc = context;
+    return range_at(uc->uc_mcontext->__ss.__pc);
+}
+
+/* The guest block that host address PC was translated from, as an offset from the guest image
+ * (bb_image_base_for_reports), for samplers; 0 when PC is not translated code. Lock-free: the
+ * range chunks are only appended to. */
+uint64_t bbcpu_jit_guest_offset_at(uintptr_t pc) {
+    const CodeRange *range = range_at((uint64_t)pc);
+    if (!range || !range->block) return 0;
+    return range->block->start - bb_image_base_for_reports();
 }
 
 int bbcpu_fault_guest_regs(void *context, BbGuestRegs *regs) {

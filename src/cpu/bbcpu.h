@@ -100,6 +100,9 @@ int bbcpu_handle_alignment_fault(void *context);
 int bbcpu_fault_guest_regs(void *context, BbGuestRegs *regs);
 /* Describes a fault in translated code (guest block and registers); 0 when not one. */
 int bbcpu_describe_fault(void *context, char *out, size_t size);
+/* The guest block (offset from the guest image) translated code at host address PC came from; 0
+ * when PC is not translated code. For samplers that read a suspended thread's pc. */
+uint64_t bbcpu_jit_guest_offset_at(uintptr_t pc);
 
 /* Statistics and the guest location of this thread, for logs. */
 uint64_t bbcpu_guest_rip(void);
@@ -137,6 +140,7 @@ static inline uint64_t bbcpu_import_return(void) { return 0; }
 static inline uint64_t bbcpu_guest_return(uint64_t value) { return value; }
 static inline int bbcpu_handle_alignment_fault(void *context) { (void)context; return 0; }
 static inline int bbcpu_describe_fault(void *context, char *out, size_t size) { (void)context; (void)out; (void)size; return 0; }
+static inline uint64_t bbcpu_jit_guest_offset_at(uintptr_t pc) { (void)pc; return 0; }
 #define BBCPU_TSC_HZ UINT64_C(1600000000)
 typedef struct { uint64_t r[16]; uint64_t rip; } BbGuestRegs;
 static inline int bbcpu_fault_guest_regs(void *context, BbGuestRegs *regs) { (void)context; (void)regs; return 0; }

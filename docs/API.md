@@ -63,5 +63,6 @@ those excluded with `bbcpu_recomp_exclude`, stay with the translator.
 ## Reports
 
 `bbcpu_report` prints statistics. `bbcpu_describe_fault` and `bbcpu_fault_guest_regs` describe a
-fault in translated code. The switches for diagnosing the translator are in
+fault in translated code. `bbcpu_jit_guest_offset_at` names the guest block a host address in
+translated code came from (for a sampler reading a suspended thread's pc). The switches for diagnosing the translator are in
 [Architecture](ARCHITECTURE.md#debugging-switches).
