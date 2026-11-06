@@ -25,6 +25,10 @@ is the order to use it in. `examples/hello.c` is the smallest working host.
 5. Call guest code: `bbcpu_call`, `bbcpu_call_full`, or `bbcpu_call_on_stack` for a thread's entry
    on a guest stack.
 
+The translator sets itself up at the first guest call. `bbcpu_jit_start` does it earlier and says
+whether it is on. On iOS a host calls it as soon as the debugger that enabled JIT (StikDebug,
+StikJIT) is attached: the code buffer is prepared through that debugger, which then detaches.
+
 ## Threads
 
 Each guest thread is a host thread. Give it its guest thread pointer with

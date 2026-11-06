@@ -111,9 +111,15 @@ uint64_t bbcpu_import_return(void);
  * (recomp.c), and this gives the caller's back. Any other value is returned as it is. */
 uint64_t bbcpu_guest_return(uint64_t value);
 void bbcpu_report(void);
+/* Sets up the translator now instead of at the first guest call; 1 when it is on, 0 when guest
+ * code is interpreted. On iOS, call it as soon as the debugger that enabled JIT is attached:
+ * the code buffer is prepared through it and it then detaches (while it is attached, every
+ * signal the process gets goes through it). Later calls return the same answer. */
+int bbcpu_jit_start(void);
 
 #else
 static inline int bbcpu_enabled(void) { return 0; }
+static inline int bbcpu_jit_start(void) { return 0; }
 static inline int bbcpu_is_guest(uintptr_t address) { (void)address; return 0; }
 static inline void bbcpu_add_guest_code(uintptr_t start, size_t size) { (void)start; (void)size; }
 static inline void bbcpu_recomp_exclude(uint64_t address, size_t size) { (void)address; (void)size; }

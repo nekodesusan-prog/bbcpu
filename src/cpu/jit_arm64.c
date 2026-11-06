@@ -2736,6 +2736,8 @@ static void link_exit(uint32_t *site, const void *code) {
     pthread_mutex_unlock(&jit_lock);
 }
 
+int bbcpu_jit_start(void) { return jit_init(); }
+
 int bbcpu_jit_run(BbCpu *cpu, uint64_t stop) {
     if (!jit_init()) return 0;
     static int cc_ready;
@@ -2924,6 +2926,7 @@ int bbcpu_handle_alignment_fault(void *context) {
     (void)context;
     return 0;
 }
+int bbcpu_jit_start(void) { return 0; }
 int bbcpu_jit_run(BbCpu *cpu, uint64_t stop) {
     (void)cpu;
     (void)stop;
