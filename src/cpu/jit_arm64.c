@@ -166,14 +166,13 @@ static void jit_native(BbCpu *cpu, const void *fn) {
  * address is pushed; it returns with cpu->rip at it. */
 static void jit_recomp(BbCpu *cpu, RcFn fn) {
     jit_to_x86(cpu);
+    /* Not on this thread (BB_RECOMP_THREADS): cpu->rip stays the callee (host_call_stub stored it)
+     * and the call site, translated with filtering on, exits to cpu->rip: the callee then runs
+     * translated in this same loop. (A nested bbcpu_run per call piled up host frames as deep as
+     * the guest's calls and crashed games.) */
     if (bbcpu_recomp_thread_ok()) {
         bbcpu_recomp_counted(cpu);
         fn(cpu);
-    } else { /* not on this thread (BB_RECOMP_THREADS): translated, returning to a sentinel */
-        const uint64_t next = bb_load(cpu->r[RSP], 8);
-        bb_store(cpu->r[RSP], 8, UINT64_C(0x0000700000000d00));
-        bbcpu_run(cpu, UINT64_C(0x0000700000000d00));
-        cpu->rip = next;
     }
     x86_to_jit(cpu);
 }
@@ -2479,7 +2478,11 @@ static int translate_insn(Tx *t, const BbInsn *in, int flags_live, int *handled)
                 a64_mov_imm(a, TA, callee);
                 a64_mov_imm(a, TB, (uint64_t)(uintptr_t)fn);
                 a64_bl(a, (int32_t)(recomp_stub - a64_here(a)));
-                exit_to(t, next);
+                if (bbcpu_recomp_threads_filtered) { /* the return address, or the callee (jit_recomp) */
+                    a64_ldr_uoff(a, 3, T1, CPU, OFF(rip));
+                    exit_to_reg(t, T1);
+                } else
+                    exit_to(t, next);
                 return 1;
             }
         }
