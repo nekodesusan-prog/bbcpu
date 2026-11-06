@@ -258,6 +258,12 @@ static uint32_t *host_call_stub(A64 *a, const void *fn) {
     return stub;
 }
 
+/* MAP_JIT's per-thread write switch. With a writable alias (iOS, BB_JIT_ALIAS=1) the executable
+ * mapping stays write-protected, so a write that misses the alias faults on a Mac too. */
+static void jit_write_protect(int enabled) {
+    if (!jit_alias_hi) pthread_jit_write_protect_np(enabled);
+}
+
 /* A writable second mapping of the executable range [rx, rx + size), or NULL. */
 static void *writable_alias(void *rx, size_t size) {
     vm_address_t rw = 0;
@@ -371,7 +377,7 @@ static int jit_init(void) {
                 jit_alias_hi = code_end;
                 jit_alias_delta = (char *)rw - (char *)p;
             }
-            pthread_jit_write_protect_np(0);
+            jit_write_protect(0);
             A64 a = {code_base, code_base, code_end};
             /* enter(cpu, code): save the host's callee-saved registers, load the guest's. */
             enter_stub = a64_here(&a);
@@ -414,7 +420,7 @@ static int jit_init(void) {
             host_call(&a, (const void *)&jit_host_function);
             continue_at_result(&a);
             code_next = a64_here(&a);
-            pthread_jit_write_protect_np(1);
+            jit_write_protect(1);
             sys_icache_invalidate(code_base, (size_t)(code_next - code_base) * 4);
             state = 1;
             printf("CPU: guest code translated to arm64 (JIT; BB_JIT=0: interpreter)\n");
@@ -2261,7 +2267,7 @@ static int translate_insn(Tx *t, const BbInsn *in, int flags_live, int *handled)
             exit_to(t, target);
             uint32_t *fall = a64_here(a);
             if (acc >= 0) a64_patch_bcond(skip, fall);
-            else *skip = (*skip & 0xfff8001fu) | ((uint32_t)(fall - skip) & 0x3fff) << 5;
+            else *jit_writable(skip) = (*jit_writable(skip) & 0xfff8001fu) | ((uint32_t)(fall - skip) & 0x3fff) << 5;
             exit_to(t, next);
             return 1;
         }
@@ -2637,7 +2643,7 @@ static void *translate(BbBlock *block) {
         live_after[i] = (uint16_t)live;
         live = (live & ~flags_written(in)) | flags_read(in);
     }
-    pthread_jit_write_protect_np(0);
+    jit_write_protect(0);
     Tx t = {.a = {code_next, code_next, code_end}, .block = block};
     /* Translation metadata only: no instructions or callbacks added to guest execution. */
     static int fault_map_enabled = -1;
@@ -2718,7 +2724,7 @@ static void *translate(BbBlock *block) {
         if (fresh) __atomic_store_n(&range_chunks, chunk, __ATOMIC_RELEASE);
         map_block(start, code_next, block->start);
     }
-    pthread_jit_write_protect_np(1);
+    jit_write_protect(1);
     __atomic_store_n(&block->jit_code, code, __ATOMIC_RELEASE);
     pthread_mutex_unlock(&jit_lock);
     return code;
@@ -2729,9 +2735,9 @@ static void link_exit(uint32_t *site, const void *code) {
     const int64_t offset = (const uint32_t *)code - site;
     if (offset < -(1 << 25) || offset >= (1 << 25)) return;
     pthread_mutex_lock(&jit_lock);
-    pthread_jit_write_protect_np(0);
+    jit_write_protect(0);
     __atomic_store_n(jit_writable(site), 0x14000000u | ((uint32_t)offset & 0x3ffffff), __ATOMIC_RELEASE);
-    pthread_jit_write_protect_np(1);
+    jit_write_protect(1);
     sys_icache_invalidate(site, 4);
     pthread_mutex_unlock(&jit_lock);
 }
