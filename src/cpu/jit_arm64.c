@@ -2893,7 +2893,7 @@ int bbcpu_handle_alignment_fault(void *context) {
     const uint64_t pc = uc->uc_mcontext->__ss.__pc;
     if (!code_base || pc < (uint64_t)(uintptr_t)code_base || pc >= (uint64_t)(uintptr_t)code_next) return 0;
     if ((uc->uc_mcontext->__es.__esr & 0x3f) != 0x21) return 0; /* DFSC: alignment fault */
-    const uint32_t insn = *(const uint32_t *)pc;
+    const uint32_t insn = *jit_writable((uint32_t *)pc); /* the executable mapping may not be readable */
     const int size = 1 << (insn >> 30), rn = (insn >> 5) & 31, rt = insn & 31;
     const int is_load = (insn & 0x3ffffc00u) == 0x38bfc000u, is_store = (insn & 0x3ffffc00u) == 0x089ffc00u;
     if ((!is_load && !is_store) || rn == 31) return 0;
