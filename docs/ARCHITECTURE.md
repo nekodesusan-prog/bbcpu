@@ -54,6 +54,15 @@ only through imports the runtime already implements), no self-modifying code, on
   - x86-TSO: loads and stores with acquire/release (ldapr/stlr); misaligned accesses take an
     out-of-line slow path. Locked operations use LSE atomics between full barriers.
   - `rdtsc` reads the arm64 virtual counter, scaled to the PS4 clock.
+  - Code buffer: 128 MiB, mapped once. On macOS it is `MAP_JIT`, written between
+    `pthread_jit_write_protect_np` calls. On iOS a sideloaded app has no `MAP_JIT`: the JIT runs
+    only once the process is marked as debugged (StikDebug, StikJIT, Xcode), from a buffer mapped
+    executable and written through a second, writable mapping (`vm_remap`). On devices with TXM the
+    buffer is mapped and prepared by StikJIT's universal script through its breakpoint calls
+    (`brk #0xf00d`, x16 = 1 prepare, 0 detach) before the script detaches. `BB_JIT_TXM=1`/`0`
+    chooses the protocol; unset, it is used while a debugger is still attached. Without JIT the
+    interpreter runs what the recompiled library does not cover, as before. Not yet run on a
+    device. `BB_JIT_ALIAS=1` runs the alias layout on a Mac (`tools/cpu/test_jit.sh` does).
 - Performance: the game is GPU-bound at 1080p; the main guest thread is ~85% busy. Memory
   ordering showed no measurable cost (`BB_JIT_UNORDERED`, measurement only).
 

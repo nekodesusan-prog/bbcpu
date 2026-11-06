@@ -15,6 +15,8 @@ clang -arch arm64 -O2 -std=gnu11 -I$D/include tests/test_jit.c src/cpu/cpu.c src
 export BBCPU_FTZ=1
 echo "== interpreter"; BB_JIT=0 out/test_jit out/jit_guest out/jit_guest.expected
 echo "== JIT"; out/test_jit out/jit_guest out/jit_guest.expected
+# The iOS layout: code executed at one address and written through another (jit_arm64.c).
+echo "== JIT through a writable alias"; BB_JIT_ALIAS=1 out/test_jit out/jit_guest out/jit_guest.expected
 
 # Fault reporting must map both inline and out-of-line accesses to the guest instruction.
 clang -arch arm64 -O2 -std=gnu11 -I"$D/include" tests/test_jit_fault.c src/cpu/*.c \
@@ -26,3 +28,15 @@ clang -arch arm64 -O2 -std=gnu11 -I"$D/include" tests/test_jit_hooks.c src/cpu/*
     src/cpu/hostcall.S "$D/lib/libZydis.a" "$D/lib/libZycore.a" -o out/test_jit_hooks
 BB_JIT=0 out/test_jit_hooks
 out/test_jit_hooks
+BB_JIT_ALIAS=1 out/test_jit_hooks
+
+# iOS: the library compiles for iPhone and iPad with the runtime's flags
+# (bloodborne-runtime scripts/ios/build-core.sh), where Xcode has the iOS SDK.
+if command -v xcrun >/dev/null && xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1; then
+    echo "== iOS compile"
+    mkdir -p out/ios-check
+    for source in src/cpu/*.c src/cpu/hostcall.S; do
+        xcrun -sdk iphoneos clang -target arm64-apple-ios18.0 -std=gnu11 -O2 -g -Wall -Wextra -Werror \
+            -Wno-unused-parameter -I"$D/include" -c "$source" -o "out/ios-check/$(basename "$source").o"
+    done
+fi

@@ -10,8 +10,21 @@
  * A block ends at its branch: translated code stores the next guest rip in cpu->rip and returns
  * to bbcpu_jit_run, which finds (or translates) the next block. Instructions the translator does
  * not handle run in the interpreter (bbcpu_step) through a call from the translated code.
- * BB_JIT=0 runs the interpreter instead. */
+ * BB_JIT=0 runs the interpreter instead.
+ *
+ * The code buffer is written through a second, writable mapping of it where the system allows no
+ * memory that is both (iOS, and BB_JIT_ALIAS=1 on macOS for tests): the emitter's addresses stay
+ * the executable ones and A64_WRITE moves each write to the alias. */
 #include "cpu_internal.h"
+#if defined(__aarch64__) && defined(__APPLE__)
+#include <stddef.h>
+static uint32_t *jit_alias_lo, *jit_alias_hi; /* the executable range written through the alias */
+static ptrdiff_t jit_alias_delta;             /* alias minus executable address, in bytes */
+static inline uint32_t *jit_writable(uint32_t *p) {
+    return p >= jit_alias_lo && p < jit_alias_hi ? (uint32_t *)((char *)p + jit_alias_delta) : p;
+}
+#define A64_WRITE(p) jit_writable(p)
+#endif
 #include "a64.h"
 #include "trace.h"
 
@@ -26,13 +39,22 @@
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #endif
+#include <mach/mach.h>
 #if defined(__APPLE__) && TARGET_OS_IPHONE
-/* iOS (proof of concept): apps cannot make code at run time, so the translator stays off and
- * guest code the recompiled library does not cover is interpreted. */
-#define BB_NO_JIT 1
+/* iOS: no MAP_JIT for a sideloaded app. Code can be made at run time only while the process is
+ * marked as debugged (CS_DEBUGGED, set by StikDebug, the launcher's StikJIT helper or Xcode),
+ * from memory mapped executable and written through a writable alias (ios_jit_map). Without it
+ * the translator stays off and guest code the recompiled library does not cover is interpreted. */
+#include <sys/proc.h>
+#include <sys/sysctl.h>
+#include <unistd.h>
+#define BB_IOS 1
 #define pthread_jit_write_protect_np(enabled) ((void)(enabled))
+int csops(pid_t pid, unsigned int ops, void *useraddr, size_t usersize);
+#define BB_CS_OPS_STATUS 0
+#define BB_CS_DEBUGGED 0x10000000u
 #else
-#define BB_NO_JIT 0
+#define BB_IOS 0
 #endif
 
 #define M(name) ZYDIS_MNEMONIC_##name
@@ -236,20 +258,119 @@ static uint32_t *host_call_stub(A64 *a, const void *fn) {
     return stub;
 }
 
+/* A writable second mapping of the executable range [rx, rx + size), or NULL. */
+static void *writable_alias(void *rx, size_t size) {
+    vm_address_t rw = 0;
+    vm_prot_t current, maximum;
+    if (vm_remap(mach_task_self(), &rw, size, 0, VM_FLAGS_ANYWHERE, mach_task_self(), (vm_address_t)rx,
+                 FALSE, &current, &maximum, VM_INHERIT_NONE) != KERN_SUCCESS)
+        return NULL;
+    if (vm_protect(mach_task_self(), rw, size, FALSE, VM_PROT_READ | VM_PROT_WRITE) != KERN_SUCCESS) {
+        vm_deallocate(mach_task_self(), rw, size);
+        return NULL;
+    }
+    return (void *)rw;
+}
+
+#if BB_IOS
+/* StikJIT's universal script protocol for devices with TXM/SPTM, where executable memory must be
+ * prepared through the debugger connection (github.com/StikDebug/StikJIT, INTEGRATION.md, MPL-2.0):
+ * x16 selects the call, brk #0xf00d stops in the attached script. A brk without the script
+ * attached kills the process, so these run only while it is attached (ios_jit_map). */
+__attribute__((noinline, optnone, naked)) static void jit26_detach(void) {
+    __asm__("mov x16, #0\n"
+            "brk #0xf00d\n"
+            "ret\n");
+}
+/* address NULL: the debugger maps the region; returns its executable address. */
+__attribute__((noinline, optnone, naked)) static void *jit26_prepare_region(void *address, size_t length) {
+    __asm__("mov x16, #1\n"
+            "brk #0xf00d\n"
+            "ret\n");
+}
+
+static int process_traced(void) {
+    struct kinfo_proc info;
+    size_t size = sizeof(info);
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()};
+    memset(&info, 0, sizeof(info));
+    return sysctl(mib, 4, &info, &size, NULL, 0) == 0 && (info.kp_proc.p_flag & P_TRACED);
+}
+
+/* The code buffer on iOS: executable at the returned address, written through *rw_out.
+ * BB_JIT_TXM=1 uses the breakpoint protocol, 0 plain debugger JIT; unset, the protocol is used
+ * while a debugger is still attached (StikJIT's script waits for the calls; on devices without
+ * TXM, StikDebug detaches at once). */
+static void *ios_jit_map(size_t size, void **rw_out) {
+    uint32_t cs = 0;
+    if (csops(getpid(), BB_CS_OPS_STATUS, &cs, sizeof(cs)) || !(cs & BB_CS_DEBUGGED)) {
+        printf("CPU: JIT not enabled for this process (StikDebug, or the launcher's JIT option, "
+               "before Play)\n");
+        return MAP_FAILED;
+    }
+    const char *env = getenv("BB_JIT_TXM");
+    const int txm = env && *env ? env[0] == '1' : process_traced();
+    void *rx = MAP_FAILED, *rw = NULL;
+    if (txm) {
+        void *p = jit26_prepare_region(NULL, size);
+        if (p) rx = p;
+    } else {
+        rx = mmap(NULL, size, PROT_READ | PROT_EXEC, MAP_PRIVATE | MAP_ANON, -1, 0);
+    }
+    if (rx != MAP_FAILED) rw = writable_alias(rx, size);
+    if (txm) jit26_detach(); /* after every region is prepared and aliased */
+    printf("CPU: JIT through %s: code %p, writable alias %p\n", txm ? "the debugger's breakpoint protocol (TXM)"
+           : "debugger attachment", rx == MAP_FAILED ? NULL : rx, rw);
+    if (rx == MAP_FAILED || !rw) {
+        if (rx != MAP_FAILED && !txm) munmap(rx, size);
+        return MAP_FAILED;
+    }
+    *rw_out = rw;
+    return rx;
+}
+#endif
+
+/* The code buffer: executable at the returned address; *rw_out is its writable alias, or NULL
+ * where the buffer itself is written (MAP_JIT and pthread_jit_write_protect_np on macOS). */
+static void *jit_map(size_t size, void **rw_out) {
+    *rw_out = NULL;
+#if BB_IOS
+    return ios_jit_map(size, rw_out);
+#else
+    void *p = mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0);
+    const char *alias = getenv("BB_JIT_ALIAS");
+    if (p != MAP_FAILED && alias && alias[0] == '1') {
+        /* Tests: the iOS layout (writes through an alias) on a Mac. */
+        *rw_out = writable_alias(p, size);
+        printf("CPU: BB_JIT_ALIAS=1: code %p, writable alias %p\n", p, *rw_out);
+        if (!*rw_out) {
+            fputs("STOP: BB_JIT_ALIAS=1: no writable alias of the code buffer\n", stderr);
+            abort();
+        }
+    }
+    return p;
+#endif
+}
+
 static int jit_init(void) {
     static int state; /* 0 unknown, 1 on, -1 off */
     if (state) return state > 0;
     pthread_mutex_lock(&jit_lock);
     if (!state) {
         const char *env = getenv("BB_JIT");
-        void *p = (BB_NO_JIT || (env && env[0] == '0')) ? MAP_FAILED
-                : mmap(NULL, CODE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0);
+        void *rw = NULL;
+        void *p = (env && env[0] == '0') ? MAP_FAILED : jit_map(CODE_SIZE, &rw);
         if (p == MAP_FAILED) {
             state = -1;
             printf("CPU: JIT off; guest code is interpreted\n");
         } else {
             code_base = p;
             code_end = code_base + CODE_SIZE / 4;
+            if (rw) {
+                jit_alias_lo = code_base;
+                jit_alias_hi = code_end;
+                jit_alias_delta = (char *)rw - (char *)p;
+            }
             pthread_jit_write_protect_np(0);
             A64 a = {code_base, code_base, code_end};
             /* enter(cpu, code): save the host's callee-saved registers, load the guest's. */
@@ -2609,7 +2730,7 @@ static void link_exit(uint32_t *site, const void *code) {
     if (offset < -(1 << 25) || offset >= (1 << 25)) return;
     pthread_mutex_lock(&jit_lock);
     pthread_jit_write_protect_np(0);
-    __atomic_store_n(site, 0x14000000u | ((uint32_t)offset & 0x3ffffff), __ATOMIC_RELEASE);
+    __atomic_store_n(jit_writable(site), 0x14000000u | ((uint32_t)offset & 0x3ffffff), __ATOMIC_RELEASE);
     pthread_jit_write_protect_np(1);
     sys_icache_invalidate(site, 4);
     pthread_mutex_unlock(&jit_lock);

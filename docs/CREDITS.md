@@ -28,6 +28,10 @@ and moved here with its history, so `git log` has every change.
 - [Zydis](https://github.com/zyantific/zydis) and Zycore (MIT): the x86-64 decoder, built by
   `build.sh` into `deps/`.
 
+- [StikJIT](https://github.com/StikDebug/StikJIT) (MPL-2.0): the breakpoint protocol its
+  universal script answers on iOS devices with TXM (`JIT26PrepareRegion`, `JIT26Detach` in its
+  `INTEGRATION.md`), followed by `src/cpu/jit_arm64.c`. No StikJIT code is linked into bbcpu.
+
 ## Prior work
 
 [Box64](https://github.com/ptitSeb/box64) and [FEX](https://github.com/FEX-Emu/FEX) are the

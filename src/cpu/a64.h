@@ -10,8 +10,15 @@ typedef struct {
     uint32_t *start, *at, *end;
 } A64;
 
+/* A64_WRITE(p): where the instruction at executable address p is written. A host whose code
+ * buffer is executable at one address and writable at another (jit_arm64.c on iOS) defines it
+ * before including this header; addresses in A64 and branch offsets stay the executable ones. */
+#ifndef A64_WRITE
+#define A64_WRITE(p) (p)
+#endif
+
 static inline void a64_emit(A64 *a, uint32_t insn) {
-    if (a->at < a->end) *a->at = insn;
+    if (a->at < a->end) *A64_WRITE(a->at) = insn;
     ++a->at;
 }
 static inline uint32_t *a64_here(const A64 *a) { return a->at; }
@@ -233,11 +240,11 @@ static inline void a64_adr(A64 *a, int rd, int32_t offset) {
 /* Patch a branch emitted at `at` to reach `target`. */
 static inline void a64_patch_bcond(uint32_t *at, const uint32_t *target) {
     const int32_t offset = (int32_t)(target - at);
-    *at = (*at & ~(0x7ffffu << 5)) | ((uint32_t)offset & 0x7ffff) << 5;
+    *A64_WRITE(at) = (*at & ~(0x7ffffu << 5)) | ((uint32_t)offset & 0x7ffff) << 5;
 }
 static inline void a64_patch_b(uint32_t *at, const uint32_t *target) {
     const int32_t offset = (int32_t)(target - at);
-    *at = (*at & 0xfc000000u) | ((uint32_t)offset & 0x3ffffff);
+    *A64_WRITE(at) = (*at & 0xfc000000u) | ((uint32_t)offset & 0x3ffffff);
 }
 
 /* ---- SIMD & FP ---- (dbl: double precision) */

@@ -31,7 +31,9 @@ uint64_t result = bbcpu_call(function, 2, args);  /* runs it on this thread */
 ## What it does not do
 
 - It runs on arm64 macOS. The translator is arm64; the interpreter also builds for x86-64, for
-  comparing against native results. Other arm64 systems are not tested.
+  comparing against native results. On iOS the translator needs JIT enabled through a debugger
+  (StikDebug or StikJIT; [Architecture](docs/ARCHITECTURE.md#status)), not yet run on a device;
+  without it the interpreter runs. Other arm64 systems are not tested.
 - It does not load executables, implement PS4 libraries or draw anything: that is the host's work.
 - It implements the instructions the PS4's CPU has and Bloodborne's code has needed. A missing one
   stops with the guest address and bytes, and `tools/cpu/census.c` and `encodings.c` list what an
