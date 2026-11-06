@@ -354,8 +354,8 @@ static void rc_tail(BbCpu *cpu) {
     fn(cpu);
 }
 
-/* rc_call and rc_tail with BB_RECOMP_NODIRECT or a thread filter: bbcpu_recomp_load gives these
- * to the library only then, so the calls of a normal run (11.5 million a second at the Sickroom
+/* rc_call and rc_tail with BB_RECOMP_NODIRECT: bbcpu_recomp_load gives these to the library only
+ * then, so the calls of a normal run (11.5 million a second at the Sickroom
  * lamp) check neither. */
 static int recomp_here(void) {
     return !no_direct() && bbcpu_recomp_thread_ok();
@@ -517,7 +517,11 @@ void bbcpu_recomp_load(uint64_t image_base) {
     }
     bbcpu_return_hook = return_hook;
     bbcpu_recomp_threads_filtered = getenv("BB_RECOMP_THREADS") || getenv("BB_RECOMP_NOT_THREADS");
-    const int checked = no_direct() || bbcpu_recomp_threads_filtered;
+    /* A thread filter needs no check inside the library: recompiled code is entered only where
+     * the thread is checked (jit_recomp, the interpreter's block start), so a thread filtered off
+     * never runs it, and a thread allowed on calls on unchecked (on iOS the checks cost the main
+     * thread 3-4% with the physics threads filtered off). BB_RECOMP_NODIRECT still needs them. */
+    const int checked = no_direct();
     static RcApi api;
     api = (RcApi){.version = BB_RECOMP_API_VERSION, .image_base = image_base, .step = rc_step,
                   .call = checked ? rc_call_checked : rc_call, .tail = checked ? rc_tail_checked : rc_tail,
